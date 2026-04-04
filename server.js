@@ -81,37 +81,55 @@ app.get("/callback", async (req, res) => {
 });
 
 app.get("/search", async (req, res) => {
-  const { q, limit = 20 } = req.query;
+  let { q, limit = 20 } = req.query;
   if (!q) return res.status(400).json({ error: "Parâmetro q obrigatório." });
+
+  // Limpa o nome: remove código interno, parênteses, texto após "Cód:", limita tamanho
+  q = q
+    .replace(/\(NÃO\s+\w+\)/gi, "")
+    .replace(/Cód[:\s]+[\w\-]+/gi, "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, 80);
+
+  if (!q) return res.status(400).json({ error: "Nome do produto inválido após limpeza." });
+
   try {
     const token = await getValidToken();
     const searchRes = await axios.get(`https://api.mercadolibre.com/sites/MLB/search`, {
-      params: { q, limit, condition: "new" },
+      params: { q, limit },
       headers: { Authorization: `Bearer ${token}` },
+      timeout: 10000,
     });
-    const items = searchRes.data.results || [];
+    const items = (searchRes.data.results || []).filter(i => i.price > 0);
+
+    // Visitas top 5 com timeout individual
     const enriched = await Promise.allSettled(
       items.slice(0, 5).map((item) =>
         axios.get(`https://api.mercadolibre.com/items/${item.id}/visits/time_window`, {
           params: { last: 30, unit: "day" },
           headers: { Authorization: `Bearer ${token}` },
+          timeout: 5000,
         }).then((r) => ({ id: item.id, visits: r.data })).catch(() => ({ id: item.id, visits: null }))
       )
     );
     const visitsMap = {};
     enriched.forEach((r) => { if (r.status === "fulfilled") visitsMap[r.value.id] = r.value.visits; });
+
     res.json({
       query: q,
       total_listings: searchRes.data.paging?.total || 0,
       items: items.map((item) => ({
         id: item.id, title: item.title, price: item.price, condition: item.condition,
-        sold_quantity: item.sold_quantity || 0, available_quantity: item.available_quantity,
+        sold_quantity: item.sold_quantity || 0,
         free_shipping: item.shipping?.free_shipping || false,
         daily_visits: visitsMap[item.id] ? Math.round((visitsMap[item.id].total_visits || 0) / 30) : null,
         seller_reputation: item.seller?.seller_reputation?.level_id || null,
       })),
     });
   } catch (err) {
+    console.error("Search error:", err.message, err.response?.data);
     res.status(500).json({ error: err.message, detail: err.response?.data });
   }
 });
