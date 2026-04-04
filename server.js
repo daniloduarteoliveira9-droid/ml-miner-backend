@@ -4,7 +4,12 @@ const cors = require("cors");
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  origem: "*",
+  métodos: ["GET", "POST", "OPTIONS"],
+  cabeçalhos permitidos: ["Content-Type", "Authorization"],
+}));
+app.options("*", cors());
 
 const ML_APP_ID = process.env.ML_APP_ID;
 const ML_SECRET = process.env.ML_SECRET;
