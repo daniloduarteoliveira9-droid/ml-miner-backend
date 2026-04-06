@@ -34,12 +34,12 @@ function saveTokens(data) {
 
 function loadTokens() {
   if (_memToken) return _memToken;
-  if (process.env.ML_ACCESS_TOKEN && process.env.ML_REFRESH_TOKEN) {
+  if (process.env.ML_ACCESS_TOKEN) {
     return {
       access_token:  process.env.ML_ACCESS_TOKEN,
-      refresh_token: process.env.ML_REFRESH_TOKEN,
+      refresh_token: process.env.ML_REFRESH_TOKEN || null,
       expires_in:    21600,
-      saved_at:      0,
+      saved_at:      Date.now(), // treat as fresh - use directly
     };
   }
   return null;
@@ -65,19 +65,8 @@ async function getValidToken() {
   const tokens = loadTokens();
   if (!tokens) throw new Error("Não autenticado. Acesse /auth primeiro.");
 
-  // Se saved_at=0 (veio de env vars), sempre renova via refresh_token
-  if (tokens.saved_at === 0) {
-    return await refreshAccessToken(tokens.refresh_token);
-  }
-
-  const ageMs = Date.now() - tokens.saved_at;
-  const expiresMs = (tokens.expires_in || 21600) * 1000;
-
-  // Token ainda válido
-  if (ageMs < expiresMs - 120000) return tokens.access_token;
-
-  // Token expirado — renova
-  return await refreshAccessToken(tokens.refresh_token);
+  // Use access token directly - it's valid for 6 hours
+  return tokens.access_token;
 }
 
 async function callMLWithAutoRefresh(fn, tokens) {
